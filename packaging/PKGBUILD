@@ -1,9 +1,9 @@
 # Maintainer: openOODA-tools <ops@openooda.org>
 pkgname=oochroot-bin
 _pkgname=oochroot
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
-pkgdesc="Sets up capability-bounded root filesystem jail with pivot_root semantics."
+pkgdesc="Sovereign ROOT JAIL and capability-bounded container confinement manager."
 arch=('x86_64')
 url="https://github.com/openOODA-tools/oochroot"
 license=('Apache-2.0')

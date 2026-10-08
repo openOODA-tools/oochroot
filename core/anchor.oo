@@ -1,0 +1,35 @@
+// # oochroot Core Verification Anchor
+//
+// Logline: Verification anchor certifying core jail types, inspection, planning, and demo suites.
+//
+// Setup: Demands ProcessCap to execute hermetic self-test assertions.
+//
+// Beats:
+//   1. Verify synthetic jail inspection generation.
+//   2. Verify pseudofs mount plan sizing.
+//   3. Verify systemd unit synthesis string formatting.
+//   4. Validate audit finding evaluation.
+
+import "core/chroot_types.oo";
+import "core/chroot_inspect.oo";
+import "core/chroot_plan.oo";
+import "core/chroot_demo.oo";
+
+pub fn verify_core_subsystem() -> Bool {
+    let demo_insp: JailInspection = build_demo_inspection();
+    if demo_insp.status != "READY" { return false; }
+    if !demo_insp.has_shell { return false; }
+
+    let mounts: List[MountPlanEntry] = build_demo_mounts();
+    if list_len(mounts) < 3 { return false; }
+
+    let unit: SystemdChrootUnit = build_demo_systemd();
+    let unit_str: String = synthesize_systemd_unit(unit);
+    if chars_len(unit_str) == 0 { return false; }
+
+    let findings: List[AuditFinding] = build_demo_findings();
+    let summary: ChrootSummary = summarize_audit(findings, demo_insp.root_path);
+    if summary.readiness_score < 80 { return false; }
+
+    return true;
+}

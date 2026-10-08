@@ -1,0 +1,81 @@
+// # oochroot Jail Inspection Subsystem
+//
+// Logline: Probes and audits candidate root filesystem directory layout and essential binaries.
+//
+// Setup: Demands explicit ProcessCap token to evaluate filesystem nodes without ambient authority.
+//
+// Beats:
+//   1. Inspect presence of candidate root directory.
+//   2. Check standard directory tree hierarchy (bin, etc, lib, usr, dev, proc).
+//   3. Detect available shell interpreter within target jail.
+//   4. Evaluate structural readiness and produce typed inspection report.
+
+import "std/fs/process/process.oo";
+import "core/chroot_types.oo";
+
+pub fn check_is_dir(proc_cap: &ProcessCap, path: String) -> Bool {
+    let cmd: String = "test -d \"" + path + "\" && echo 1 || echo 0";
+    let res: Result[String, String] = process_exec(proc_cap, cmd);
+    if res.is_ok() {
+        let out: String = match res { Ok(s) => s, Err(_) => "0" };
+        return str_trim(out) == "1";
+    }
+    return false;
+}
+
+pub fn check_is_executable(proc_cap: &ProcessCap, path: String) -> Bool {
+    let cmd: String = "test -x \"" + path + "\" && echo 1 || echo 0";
+    let res: Result[String, String] = process_exec(proc_cap, cmd);
+    if res.is_ok() {
+        let out: String = match res { Ok(s) => s, Err(_) => "0" };
+        return str_trim(out) == "1";
+    }
+    return false;
+}
+
+pub fn detect_shell(proc_cap: &ProcessCap, root: String) -> String {
+    let s1: String = root + "/bin/sh";
+    if check_is_executable(proc_cap, s1) { return "/bin/sh"; }
+    let s2: String = root + "/bin/bash";
+    if check_is_executable(proc_cap, s2) { return "/bin/bash"; }
+    let s3: String = root + "/usr/bin/sh";
+    if check_is_executable(proc_cap, s3) { return "/usr/bin/sh"; }
+    let s4: String = root + "/usr/bin/bash";
+    if check_is_executable(proc_cap, s4) { return "/usr/bin/bash"; }
+    let s5: String = root + "/bin/ash";
+    if check_is_executable(proc_cap, s5) { return "/bin/ash"; }
+    return "";
+}
+
+pub fn inspect_jail(proc_cap: &ProcessCap, raw_root: String) -> JailInspection {
+    let root: String = str_trim(raw_root);
+    let exists: Bool = check_is_dir(proc_cap, root);
+    if !exists {
+        return make_jail_inspection(
+            root, false, false, false, false, false, false, false, false, false, "", "NOT_FOUND"
+        );
+    }
+
+    let has_bin: Bool = check_is_dir(proc_cap, root + "/bin") || check_is_dir(proc_cap, root + "/usr/bin");
+    let has_etc: Bool = check_is_dir(proc_cap, root + "/etc");
+    let has_lib: Bool = check_is_dir(proc_cap, root + "/lib") || check_is_dir(proc_cap, root + "/usr/lib") || check_is_dir(proc_cap, root + "/lib64");
+    let has_usr: Bool = check_is_dir(proc_cap, root + "/usr");
+    let has_dev: Bool = check_is_dir(proc_cap, root + "/dev");
+    let has_proc: Bool = check_is_dir(proc_cap, root + "/proc");
+
+    let shell_path: String = detect_shell(proc_cap, root);
+    let has_shell: Bool = (chars_len(shell_path) > 0);
+
+    let mut status: String = "READY";
+    if !has_shell {
+        status = "MISSING_SHELL";
+    } else if !has_bin || !has_lib {
+        status = "INCOMPLETE_TREE";
+    } else if !has_etc {
+        status = "DEGRADED_ETC";
+    }
+
+    return make_jail_inspection(
+        root, true, true, has_bin, has_etc, has_lib, has_usr, has_dev, has_proc, has_shell, shell_path, status
+    );
+}

@@ -1,7 +1,7 @@
 Name:           oochroot
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
-Summary:        Sets up capability-bounded root filesystem jail with pivot_root semantics.
+Summary:        Sovereign ROOT JAIL and capability-bounded container confinement manager.
 License:        ASL 2.0
 URL:            https://github.com/openOODA-tools/oochroot
 Source0:        oochroot-linux-x86_64
@@ -10,9 +10,9 @@ BuildArch:      x86_64
 Requires:       glibc
 
 %description
-oochroot is a sovereign, capability-bounded ROOT JAIL written
-in pure openOODA, featuring zero ambient authority, oote color themes,
-and an MCP stdio server.
+oochroot is a sovereign, capability-bounded ROOT JAIL and isolation
+manager written in pure openOODA, featuring zero ambient authority,
+systemd service confinement synthesis, and an MCP stdio server.
 
 %install
 mkdir -p %{buildroot}/usr/bin
@@ -24,5 +24,5 @@ install -m 0755 %{SOURCE1} %{buildroot}/usr/bin/oochroot-uninstall
 /usr/bin/oochroot-uninstall
 
 %changelog
-* Wed Oct 07 2026 openOODA-tools <ops@openooda.org> - 0.1.0-1
-- Initial sovereign blueprint scaffolding
+* Thu Oct 08 2026 openOODA-tools <ops@openooda.org> - 0.2.0-1
+- Elevation to pure openOODA v0.2.0 with systemd confinement synthesis and MCP server

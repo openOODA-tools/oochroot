@@ -1,0 +1,168 @@
+// # oochroot Planning and Confinement Synthesis Subsystem
+//
+// Logline: Formulates pseudofs mount tables, systemd service units, and security audit verifications.
+//
+// Setup: Synthesizes declarative confinement artifacts complying with pure systemd-native architecture.
+//
+// Beats:
+//   1. Build pseudofs mount plans for containerized filesystem trees.
+//   2. Synthesize declarative systemd service unit with sandboxing directives.
+//   3. Conduct static security audit against root jailbreak vulnerabilities.
+//   4. Compute holistic jail readiness score and summary report.
+
+import "std/fs/process/process.oo";
+import "core/chroot_types.oo";
+
+pub fn build_mount_plan(root: String, include_api_vfs: Bool) -> List[MountPlanEntry] {
+    let mut plan: List[MountPlanEntry] = list_new();
+    if include_api_vfs {
+        plan = list_push(plan, make_mount_entry("proc", root + "/proc", "proc", "nosuid,noexec,nodev"));
+        plan = list_push(plan, make_mount_entry("sysfs", root + "/sys", "sysfs", "nosuid,noexec,nodev,ro"));
+        plan = list_push(plan, make_mount_entry("devtmpfs", root + "/dev", "devtmpfs", "nosuid,mode=0755"));
+        plan = list_push(plan, make_mount_entry("devpts", root + "/dev/pts", "devpts", "nosuid,noexec,mode=0620,ptmxmode=0666"));
+        plan = list_push(plan, make_mount_entry("tmpfs", root + "/dev/shm", "tmpfs", "nosuid,nodev,mode=1777"));
+    }
+    return plan;
+}
+
+pub fn format_mount_plan(plan: List[MountPlanEntry]) -> String {
+    let mut out: String = "# Planned Pseudofs Mounts:\n";
+    let n: Int = list_len(plan);
+    let mut i: Int = 0;
+    while i < n {
+        let entry: MountPlanEntry = list_get(plan, i);
+        out = out + "mount -t " + entry.fstype + " -o " + entry.options + " " + entry.source + " " + entry.target + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn synthesize_systemd_unit(unit: SystemdChrootUnit) -> String {
+    let mut s: String = "# /etc/systemd/system/" + unit.unit_name + ".service\n";
+    s = s + "# Generated declaratively by oochroot v0.2.0\n";
+    s = s + "[Unit]\n";
+    s = s + "Description=Sovereign Container Jail (" + unit.unit_name + ")\n";
+    s = s + "Documentation=man:oochroot(1) https://openooda-tools.github.io/oochroot\n";
+    s = s + "After=local-fs.target\n\n";
+    s = s + "[Service]\n";
+    s = s + "Type=exec\n";
+    s = s + "RootDirectory=" + unit.root_dir + "\n";
+    let api_val: String = if unit.mount_api_vfs { "yes" } else { "no" };
+    s = s + "MountAPIVFS=" + api_val + "\n";
+    s = s + "ProtectSystem=" + unit.protect_system + "\n";
+    s = s + "ProtectHome=" + unit.protect_home + "\n";
+    let priv_tmp: String = if unit.private_tmp { "yes" } else { "no" };
+    s = s + "PrivateTmp=" + priv_tmp + "\n";
+    let no_new: String = if unit.no_new_privileges { "yes" } else { "no" };
+    s = s + "NoNewPrivileges=" + no_new + "\n";
+    s = s + "PrivateDevices=false\n";
+    if chars_len(unit.userspec) > 0 {
+        s = s + "User=" + unit.userspec + "\n";
+    }
+    if chars_len(unit.drop_caps) > 0 {
+        s = s + "CapabilityBoundingSet=" + unit.drop_caps + "\n";
+    }
+    s = s + "ExecStart=" + unit.exec_cmd + "\n";
+    s = s + "StandardOutput=journal\n";
+    s = s + "StandardError=journal\n\n";
+    s = s + "[Install]\n";
+    s = s + "WantedBy=multi-user.target\n";
+    return s;
+}
+
+pub fn audit_jail_security(proc_cap: &ProcessCap, root: String) -> List[AuditFinding] {
+    let mut findings: List[AuditFinding] = list_new();
+
+    // 1. Check if root is writable by world
+    let r_world: Result[String, String] = process_exec(proc_cap, "test -w \"" + root + "\" && stat -c %a \"" + root + "\" || echo 000");
+    if r_world.is_ok() {
+        let perm: String = match r_world { Ok(p) => str_trim(p), Err(_) => "000" };
+        let plen: Int = chars_len(perm);
+        if plen >= 3 {
+            let last_b: Int = byte_at(perm, plen - 1);
+            if last_b == 50 || last_b == 51 || last_b == 54 || last_b == 55 || last_b == 56 || last_b == 57 {
+                findings = list_push(findings, make_audit_finding(
+                    "CRITICAL", "PERM_WORLD_WRITABLE_ROOT",
+                    "Root directory is world-writable (" + perm + ")",
+                    "Run chmod 0755 " + root
+                ));
+            }
+        }
+    }
+
+    // 2. Check for exposed raw device nodes (/dev/mem, /dev/kmem)
+    let r_devmem: Result[String, String] = process_exec(proc_cap, "test -c \"" + root + "/dev/mem\" && echo 1 || echo 0");
+    if r_devmem.is_ok() {
+        let res: String = match r_devmem { Ok(s) => str_trim(s), Err(_) => "0" };
+        if res == "1" {
+            findings = list_push(findings, make_audit_finding(
+                "CRITICAL", "DEV_MEM_EXPOSED",
+                "Raw physical memory device node (/dev/mem) exposed inside jail",
+                "Remove character device from chroot dev tree"
+            ));
+        }
+    }
+
+    // 3. Check for SUID binaries in jail tree
+    let r_suid: Result[String, String] = process_exec(proc_cap, "find \"" + root + "\" -xdev -perm /4000 2>/dev/null | head -5");
+    if r_suid.is_ok() {
+        let suid_list: String = match r_suid { Ok(s) => str_trim(s), Err(_) => "" };
+        if chars_len(suid_list) > 0 {
+            findings = list_push(findings, make_audit_finding(
+                "WARNING", "SUID_BINARIES_PRESENT",
+                "Setuid binaries detected within jail boundary",
+                "Strip setuid bit with chmod u-s or mount root with nosuid"
+            ));
+        }
+    }
+
+    // 4. Check for shadow file accessibility
+    let r_shadow: Result[String, String] = process_exec(proc_cap, "test -f \"" + root + "/etc/shadow\" && echo 1 || echo 0");
+    if r_shadow.is_ok() {
+        let res: String = match r_shadow { Ok(s) => str_trim(s), Err(_) => "0" };
+        if res == "1" {
+            findings = list_push(findings, make_audit_finding(
+                "INFO", "SHADOW_FILE_PRESENT",
+                "Authentication shadow database found in jail /etc/shadow",
+                "Ensure strict 0640 or 0000 permissions on shadow file"
+            ));
+        }
+    }
+
+    if list_len(findings) == 0 {
+        findings = list_push(findings, make_audit_finding(
+            "OK", "JAIL_CONFINEMENT_VALID",
+            "No jailbreak vectors or privileged device nodes detected",
+            "Root tree complies with sovereign confinement standards"
+        ));
+    }
+
+    return findings;
+}
+
+pub fn summarize_audit(findings: List[AuditFinding], root: String) -> ChrootSummary {
+    let total: Int = list_len(findings);
+    let mut passed: Int = 0;
+    let mut warnings: Int = 0;
+    let mut criticals: Int = 0;
+    let mut i: Int = 0;
+
+    while i < total {
+        let f: AuditFinding = list_get(findings, i);
+        if f.severity == "CRITICAL" {
+            criticals = criticals + 1;
+        } else if f.severity == "WARNING" {
+            warnings = warnings + 1;
+        } else {
+            passed = passed + 1;
+        }
+        i = i + 1;
+    }
+
+    let mut score: Int = 100;
+    score = score - (criticals * 40);
+    score = score - (warnings * 15);
+    if score < 0 { score = 0; }
+
+    return make_chroot_summary(root, total, passed, warnings, criticals, score);
+}

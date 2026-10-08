@@ -1,0 +1,78 @@
+// # oochroot Terminal Rendering Subsystem
+//
+// Logline: Formats jail inspections, mount tables, security findings, and JSON telemetry.
+//
+// Setup: Generates structured, high-legibility terminal representations for humans and automation.
+//
+// Beats:
+//   1. Format jail filesystem tree layout and status.
+//   2. Format pseudofs mount tables.
+//   3. Format security audit findings and compliance score.
+//   4. Generate structured JSON telemetry.
+
+import "core/chroot_types.oo";
+
+pub fn render_inspection(insp: JailInspection) -> String {
+    let mut out: String = "=== oochroot Jail Inspection: " + insp.root_path + " ===\n";
+    let ex_str: String = if insp.exists { "EXISTS (directory)" } else { "NOT FOUND" };
+    out = out + "Status:       " + insp.status + "\n";
+    out = out + "Root Node:    " + ex_str + "\n";
+    out = out + "Directories:\n";
+    let bin_str: String = if insp.has_bin { "YES" } else { "NO" };
+    let etc_str: String = if insp.has_etc { "YES" } else { "NO" };
+    let lib_str: String = if insp.has_lib { "YES" } else { "NO" };
+    let usr_str: String = if insp.has_usr { "YES" } else { "NO" };
+    let dev_str: String = if insp.has_dev { "YES" } else { "NO" };
+    let proc_str: String = if insp.has_proc { "YES" } else { "NO" };
+    out = out + "  /bin, /usr/bin : " + bin_str + "\n";
+    out = out + "  /etc           : " + etc_str + "\n";
+    out = out + "  /lib, /lib64   : " + lib_str + "\n";
+    out = out + "  /usr           : " + usr_str + "\n";
+    out = out + "  /dev           : " + dev_str + "\n";
+    out = out + "  /proc          : " + proc_str + "\n";
+    let sh_str: String = if insp.has_shell { insp.shell_path } else { "NONE (FAIL)" };
+    out = out + "Shell Binary: " + sh_str + "\n";
+    return out;
+}
+
+pub fn render_mounts(mounts: List[MountPlanEntry]) -> String {
+    let mut out: String = "=== Planned Pseudofs Mounts ===\n";
+    let n: Int = list_len(mounts);
+    let mut i: Int = 0;
+    while i < n {
+        let m: MountPlanEntry = list_get(mounts, i);
+        out = out + "  [" + m.fstype + "] " + m.source + " -> " + m.target + " (" + m.options + ")\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+pub fn render_audit(findings: List[AuditFinding], summary: ChrootSummary) -> String {
+    let mut out: String = "=== Security Audit & Jailbreak Analysis: " + summary.root_path + " ===\n";
+    let n: Int = list_len(findings);
+    let mut i: Int = 0;
+    while i < n {
+        let f: AuditFinding = list_get(findings, i);
+        out = out + "[" + f.severity + "] " + f.check_code + ": " + f.description + "\n";
+        out = out + "       Remediation: " + f.remediation + "\n";
+        i = i + 1;
+    }
+    out = out + "\nReadiness Score: " + to_string(summary.readiness_score) + "/100\n";
+    out = out + "Summary: " + to_string(summary.passed_checks) + " passed, "
+        + to_string(summary.warning_checks) + " warnings, "
+        + to_string(summary.critical_checks) + " critical\n";
+    return out;
+}
+
+pub fn render_json(insp: JailInspection, mounts: List[MountPlanEntry], summary: ChrootSummary) -> String {
+    let mut j: String = "{\"tool\":\"oochroot\",\"version\":\"0.2.0\",";
+    j = j + "\"root_path\":\"" + insp.root_path + "\",";
+    j = j + "\"status\":\"" + insp.status + "\",";
+    let ex_val: String = if insp.exists { "true" } else { "false" };
+    j = j + "\"exists\":" + ex_val + ",";
+    j = j + "\"shell\":\"" + insp.shell_path + "\",";
+    j = j + "\"readiness_score\":" + to_string(summary.readiness_score) + ",";
+    j = j + "\"mounts_count\":" + to_string(list_len(mounts)) + ",";
+    j = j + "\"critical_findings\":" + to_string(summary.critical_checks) + "}\n";
+    return j;
+}

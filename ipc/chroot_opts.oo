@@ -1,0 +1,93 @@
+// # oochroot Command Line Options Parser
+//
+// Logline: Parses command-line flags, jail directories, execution commands, and isolation options.
+//
+// Setup: Decodes standard POSIX and GNU extended flags into strongly-typed option records.
+//
+// Beats:
+//   1. Define ChrootCliOpts record structure.
+//   2. Parse positional target root and command strings.
+//   3. Handle flags for dry-run, audit, systemd synthesis, and demo modes.
+//   4. Deliver initialized configuration record.
+
+pub type ChrootCliOpts = struct {
+    root_path: String,
+    command: String,
+    userspec: String,
+    mount_api_vfs: Bool,
+    dry_run: Bool,
+    systemd: Bool,
+    audit: Bool,
+    demo: Bool,
+    json: Bool,
+    mcp: Bool,
+    help: Bool,
+    version: Bool
+};
+
+pub fn make_default_opts() -> ChrootCliOpts {
+    return ChrootCliOpts {
+        root_path: "",
+        command: "/bin/sh",
+        userspec: "",
+        mount_api_vfs: false,
+        dry_run: false,
+        systemd: false,
+        audit: false,
+        demo: false,
+        json: false,
+        mcp: false,
+        help: false,
+        version: false
+    };
+}
+
+pub fn parse_cli_args(args: List[String]) -> ChrootCliOpts {
+    let mut opts: ChrootCliOpts = make_default_opts();
+    let num_args: Int = list_len(args);
+    let mut i: Int = 0;
+    let mut pos_count: Int = 0;
+
+    while i < num_args {
+        let arg: String = list_get(args, i);
+
+        if arg == "-h" || arg == "--help" {
+            opts.help = true;
+        } else if arg == "-V" || arg == "--version" {
+            opts.version = true;
+        } else if arg == "--mcp" {
+            opts.mcp = true;
+        } else if arg == "--demo" {
+            opts.demo = true;
+        } else if arg == "--json" {
+            opts.json = true;
+        } else if arg == "--dry-run" {
+            opts.dry_run = true;
+        } else if arg == "--systemd" {
+            opts.systemd = true;
+        } else if arg == "--audit" {
+            opts.audit = true;
+        } else if arg == "--mount-api-vfs" || arg == "--mount-proc" {
+            opts.mount_api_vfs = true;
+        } else if str_starts_with(arg, "--userspec=") {
+            opts.userspec = str_slice(arg, 11, chars_len(arg));
+        } else if arg == "-u" && i + 1 < num_args {
+            i = i + 1;
+            opts.userspec = list_get(args, i);
+        } else if !str_starts_with(arg, "-") {
+            if pos_count == 0 {
+                opts.root_path = arg;
+                pos_count = pos_count + 1;
+            } else if pos_count == 1 {
+                opts.command = arg;
+                pos_count = pos_count + 1;
+            } else {
+                opts.command = opts.command + " " + arg;
+            }
+        }
+
+        i = i + 1;
+    }
+
+    return opts;
+}

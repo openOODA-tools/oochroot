@@ -1,52 +1,159 @@
 // # oochroot Main Entry Point
 //
-// Logline: Sets up capability-bounded root filesystem jail with pivot_root semantics.
+// Logline: Sovereign root jail and container confinement manager with systemd unit synthesis and MCP surface.
 //
-// Setup: Demands explicit capability tokens and standard argument list.
+// Setup: Demands explicit FsReadCap, ProcessCap, and EnvCap tokens with bounded authority.
 //
 // Beats:
-//   1. Parse command-line options and dispatch --help, --version, or --mcp.
-//   2. Execute capability-bounded oochroot operations.
-//   3. Format and output structured results to standard output.
+//   1. Parse command-line options and dispatch help, version, and demo handlers.
+//   2. Run Model Context Protocol (MCP) streaming JSON-RPC server on --mcp.
+//   3. Inspect target jail directory, audit confinement, or synthesize systemd service unit.
+//   4. Deliver structured execution report or launch capability-bounded chroot process.
 
-fn render_help() -> String {
-    return "oochroot 0.1.0 (openOODA sovereign system & monitor)\n"
-        + "usage: oochroot [options] [ARGUMENTS]...\n\n"
-        + "Sets up capability-bounded root filesystem jail with pivot_root semantics.\n\n"
+import "std/fs/process/process.oo";
+import "core/chroot_types.oo";
+import "core/chroot_inspect.oo";
+import "core/chroot_plan.oo";
+import "core/chroot_demo.oo";
+import "render/chroot_theme.oo";
+import "ipc/chroot_opts.oo";
+import "ipc/mcp_serve.oo";
+import "anchor.oo";
+
+pub fn render_help() -> String {
+    return "oochroot 0.2.0 (openOODA sovereign container & jail)\n"
+        + "usage: oochroot [OPTION]... NEWROOT [COMMAND [ARG]...]\n"
+        + "  or:  oochroot [OPTION]... --demo\n\n"
+        + "Run COMMAND with root directory set to NEWROOT or inspect jail confinement.\n\n"
         + "Options:\n"
-        + "  -h, --help           display this help and exit\n"
-        + "  -v, --version        output version information and exit\n"
-        + "      --json           output formatted as JSON Lines\n"
-        + "      --color <WHEN>   colorize output: auto, always, never [default: auto]\n"
-        + "      --theme <NAME>   override active oote palette\n"
-        + "      --mcp            run as Model Context Protocol stdio server\n";
+        + "  -u, --userspec=USER:GROUP  specify user and group (ID or name) to use\n"
+        + "      --mount-api-vfs        mount API virtual filesystems (/proc, /sys, /dev)\n"
+        + "      --systemd              synthesize declarative systemd service unit\n"
+        + "      --audit                audit root filesystem for jailbreak vulnerabilities\n"
+        + "      --dry-run              simulate chroot setup and print confinement plan\n"
+        + "      --demo                 run demonstration scenarios with synthetic fixtures\n"
+        + "      --json                 output formatted as JSON telemetry\n"
+        + "  -h, --help                 display this help and exit\n"
+        + "  -V, --version              output version information and exit\n"
+        + "      --mcp                  run as Model Context Protocol stdio server\n";
 }
 
-fn render_version() -> String {
-    return "oochroot 0.1.0 (openOODA sovereign system & monitor)\n";
+pub fn render_version() -> String {
+    return "oochroot 0.2.0 (openOODA sovereign system & monitor)\n";
 }
 
-fn main(args: List[String]) -> Int {
-    let num_args: Int = list_len(args);
-    let mut i: Int = 0;
+fn handle_demo(opts: ChrootCliOpts) -> Int {
+    let insp: JailInspection = build_demo_inspection();
+    let mounts: List[MountPlanEntry] = build_demo_mounts();
+    let findings: List[AuditFinding] = build_demo_findings();
+    let summary: ChrootSummary = build_demo_summary();
 
-    while i < num_args {
-        let arg: String = list_get(args, i);
-        if arg == "-h" || arg == "--help" {
-            print(render_help());
-            return 0;
-        }
-        if arg == "-v" || arg == "--version" {
-            print(render_version());
-            return 0;
-        }
-        if arg == "--mcp" {
-            print("{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"ready\",\"tool\":\"oochroot\"}}\n");
-            return 0;
-        }
-        i = i + 1;
+    if opts.json {
+        print(render_json(insp, mounts, summary));
+        return 0;
+    }
+    if opts.systemd {
+        let unit: SystemdChrootUnit = build_demo_systemd();
+        print(synthesize_systemd_unit(unit));
+        return 0;
+    }
+    print(render_inspection(insp) + "\n");
+    print(render_mounts(mounts) + "\n");
+    print(render_audit(findings, summary));
+    return 0;
+}
+
+pub fn main(
+    fs: &FsReadCap,
+    proc_cap: &ProcessCap,
+    _env: &EnvCap,
+    args: List[String]
+) -> Result[Int, String] {
+    let opts: ChrootCliOpts = parse_cli_args(args);
+
+    if opts.help {
+        print(render_help());
+        return Ok(0);
+    }
+    if opts.version {
+        print(render_version());
+        return Ok(0);
+    }
+    if opts.mcp {
+        run_mcp_server(fs, proc_cap);
+        return Ok(0);
+    }
+    if opts.demo {
+        let code: Int = handle_demo(opts);
+        return Ok(code);
     }
 
-    print("oochroot: sovereign capability-bounded utility ready\n");
-    return 0;
+    if chars_len(opts.root_path) == 0 {
+        print("oochroot: missing operand NEWROOT\nTry 'oochroot --help' for more information.\n");
+        return Ok(1);
+    }
+
+    let insp: JailInspection = inspect_jail(proc_cap, opts.root_path);
+
+    if opts.systemd {
+        let unit: SystemdChrootUnit = make_systemd_unit(
+            "oochroot-jail",
+            opts.root_path,
+            opts.command,
+            opts.userspec,
+            "strict",
+            "yes",
+            true,
+            opts.mount_api_vfs,
+            true,
+            "CAP_NET_BIND_SERVICE"
+        );
+        print(synthesize_systemd_unit(unit));
+        return Ok(0);
+    }
+
+    if opts.audit {
+        let findings: List[AuditFinding] = audit_jail_security(proc_cap, opts.root_path);
+        let summary: ChrootSummary = summarize_audit(findings, opts.root_path);
+        if opts.json {
+            print(render_json(insp, list_new(), summary));
+        } else {
+            print(render_audit(findings, summary));
+        }
+        return Ok(0);
+    }
+
+    let mounts: List[MountPlanEntry] = build_mount_plan(opts.root_path, opts.mount_api_vfs);
+    let findings: List[AuditFinding] = audit_jail_security(proc_cap, opts.root_path);
+    let summary: ChrootSummary = summarize_audit(findings, opts.root_path);
+
+    if opts.dry_run {
+        if opts.json {
+            print(render_json(insp, mounts, summary));
+        } else {
+            print("[DRY-RUN] Simulated chroot environment:\n\n");
+            print(render_inspection(insp) + "\n");
+            print(render_mounts(mounts) + "\n");
+            print("Target Command: " + opts.command + "\n");
+            print("Userspec:       " + opts.userspec + "\n");
+        }
+        return Ok(0);
+    }
+
+    if !insp.exists {
+        print("oochroot: cannot change root directory to '" + opts.root_path + "': No such directory\n");
+        return Ok(1);
+    }
+
+    let cmd: String = "chroot \"" + opts.root_path + "\" " + opts.command;
+    let res: Result[String, String] = process_exec(proc_cap, cmd);
+    if res.is_ok() {
+        let out: String = match res { Ok(s) => s, Err(_) => "" };
+        print(out);
+        return Ok(0);
+    } else {
+        let err: String = match res { Ok(_) => "", Err(e) => e };
+        print("oochroot: execution error: " + err + "\n");
+        return Ok(1);
+    }
 }

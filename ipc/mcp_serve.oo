@@ -1,0 +1,128 @@
+// # Model Context Protocol (MCP) Server for oochroot
+//
+// Logline: JSON-RPC 2.0 stdio server providing jail inspection, mount planning, and systemd confinement synthesis.
+//
+// Setup: Demands FsReadCap and ProcessCap to service streaming agent tool invocations over standard input.
+//
+// Beats:
+//   1. Handle MCP initialize handshake with server metadata.
+//   2. Expose tools/list catalogue with five sovereign container jail tools.
+//   3. Dispatch tools/call for chroot_inspect, plan, systemd, audit, and verify.
+//   4. Deliver streaming JSON-RPC responses over standard output.
+
+import "core/chroot_types.oo";
+import "core/chroot_inspect.oo";
+import "core/chroot_plan.oo";
+import "render/chroot_theme.oo";
+import "ipc/json_field.oo";
+
+pub fn render_mcp_init(id: String) -> String {
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"oochroot\",\"version\":\"0.2.0\"}}}\n";
+}
+
+pub fn render_mcp_tools_list(id: String) -> String {
+    let mut out: String = "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"tools\":[";
+    out = out + "{\"name\":\"chroot_inspect\",\"description\":\"Inspect candidate root directory layout and shell availability.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},";
+    out = out + "{\"name\":\"chroot_plan\",\"description\":\"Plan pseudofs mount points and isolation parameters for root jail.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"mount_api_vfs\":{\"type\":\"string\"}},\"required\":[\"path\"]}},";
+    out = out + "{\"name\":\"chroot_systemd\",\"description\":\"Synthesize declarative systemd service unit with RootDirectory confinement.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"unit_name\":{\"type\":\"string\"},\"root_dir\":{\"type\":\"string\"},\"exec_cmd\":{\"type\":\"string\"},\"userspec\":{\"type\":\"string\"}},\"required\":[\"root_dir\"]}},";
+    out = out + "{\"name\":\"chroot_audit\",\"description\":\"Audit root directory against jailbreak vectors and device node leaks.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}},";
+    out = out + "{\"name\":\"chroot_verify\",\"description\":\"Validate complete jail configuration and compute readiness score.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}";
+    out = out + "]}}\n";
+    return out;
+}
+
+pub fn handle_mcp_call(
+    proc_cap: &ProcessCap,
+    id: String,
+    tool_name: String,
+    req: String
+) -> String {
+    if tool_name == "chroot_inspect" {
+        let path: String = extract_json_str(req, "path");
+        let insp: JailInspection = inspect_jail(proc_cap, path);
+        let res_text: String = render_inspection(insp);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(res_text) + "\"}]}}\n";
+    }
+
+    if tool_name == "chroot_plan" {
+        let path: String = extract_json_str(req, "path");
+        let vfs_str: String = extract_json_str(req, "mount_api_vfs");
+        let vfs: Bool = (vfs_str != "false" && vfs_str != "0");
+        let mounts: List[MountPlanEntry] = build_mount_plan(path, vfs);
+        let res_text: String = format_mount_plan(mounts);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(res_text) + "\"}]}}\n";
+    }
+
+    if tool_name == "chroot_systemd" {
+        let mut uname: String = extract_json_str(req, "unit_name");
+        if chars_len(uname) == 0 { uname = "oochroot-service"; }
+        let rdir: String = extract_json_str(req, "root_dir");
+        let mut cmd: String = extract_json_str(req, "exec_cmd");
+        if chars_len(cmd) == 0 { cmd = "/bin/sh"; }
+        let userspec: String = extract_json_str(req, "userspec");
+        let unit: SystemdChrootUnit = make_systemd_unit(
+            uname, rdir, cmd, userspec, "strict", "yes", true, true, true, "CAP_NET_BIND_SERVICE"
+        );
+        let res_text: String = synthesize_systemd_unit(unit);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(res_text) + "\"}]}}\n";
+    }
+
+    if tool_name == "chroot_audit" {
+        let path: String = extract_json_str(req, "path");
+        let findings: List[AuditFinding] = audit_jail_security(proc_cap, path);
+        let summary: ChrootSummary = summarize_audit(findings, path);
+        let res_text: String = render_audit(findings, summary);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(res_text) + "\"}]}}\n";
+    }
+
+    if tool_name == "chroot_verify" {
+        let path: String = extract_json_str(req, "path");
+        let insp: JailInspection = inspect_jail(proc_cap, path);
+        let mounts: List[MountPlanEntry] = build_mount_plan(path, true);
+        let findings: List[AuditFinding] = audit_jail_security(proc_cap, path);
+        let summary: ChrootSummary = summarize_audit(findings, path);
+        let res_text: String = render_inspection(insp) + "\n" + render_mounts(mounts) + "\n" + render_audit(findings, summary);
+        return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"" + json_escape(res_text) + "\"}]}}\n";
+    }
+
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n";
+}
+
+pub fn handle_mcp_message(proc_cap: &ProcessCap, req: String) -> String {
+    let id_str: String = extract_json_str(req, "id");
+    let id: String = if chars_len(id_str) > 0 { "\"" + id_str + "\"" } else { "1" };
+    let method: String = extract_json_str(req, "method");
+
+    if method == "initialize" {
+        return render_mcp_init(id);
+    }
+    if method == "tools/list" {
+        return render_mcp_tools_list(id);
+    }
+    if method == "tools/call" {
+        let tool_name: String = extract_json_str(req, "name");
+        return handle_mcp_call(proc_cap, id, tool_name, req);
+    }
+    return "{\"jsonrpc\":\"2.0\",\"id\":" + id + ",\"error\":{\"code\":-32601,\"message\":\"Method not found\"}}\n";
+}
+
+pub fn run_mcp_server(fs: &FsReadCap, proc_cap: &ProcessCap) {
+    let mut running: Bool = true;
+    while running {
+        let line_res: Result[String, String] = oo_read_stdin_chunk(fs, 8192);
+        if !line_res.is_ok() {
+            running = false;
+        } else {
+            let line: String = match line_res { Ok(s) => s, Err(_) => "" };
+            let trimmed: String = str_trim(line);
+            if chars_len(trimmed) == 0 {
+                running = false;
+            } else {
+                let resp: String = handle_mcp_message(proc_cap, trimmed);
+                if chars_len(resp) > 0 {
+                    print(resp);
+                }
+            }
+        }
+    }
+}

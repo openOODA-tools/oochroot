@@ -1,0 +1,159 @@
+// # oochroot Type Definitions and Data Structures
+//
+// Logline: Domain models for root filesystem jails, mount trees, systemd confinement, and audit findings.
+//
+// Setup: Declares immutable and typed records for isolation planning and capability boundaries.
+//
+// Beats:
+//   1. Define jail inspection records and readiness status.
+//   2. Define mount plan entries for pseudofs attachment.
+//   3. Define declarative systemd service confinement specification.
+//   4. Define security audit findings and verification summaries.
+
+pub type JailInspection = struct {
+    root_path: String,
+    exists: Bool,
+    is_dir: Bool,
+    has_bin: Bool,
+    has_etc: Bool,
+    has_lib: Bool,
+    has_usr: Bool,
+    has_dev: Bool,
+    has_proc: Bool,
+    has_shell: Bool,
+    shell_path: String,
+    status: String
+};
+
+pub fn make_jail_inspection(
+    root_path: String,
+    exists: Bool,
+    is_dir: Bool,
+    has_bin: Bool,
+    has_etc: Bool,
+    has_lib: Bool,
+    has_usr: Bool,
+    has_dev: Bool,
+    has_proc: Bool,
+    has_shell: Bool,
+    shell_path: String,
+    status: String
+) -> JailInspection {
+    return JailInspection {
+        root_path: root_path,
+        exists: exists,
+        is_dir: is_dir,
+        has_bin: has_bin,
+        has_etc: has_etc,
+        has_lib: has_lib,
+        has_usr: has_usr,
+        has_dev: has_dev,
+        has_proc: has_proc,
+        has_shell: has_shell,
+        shell_path: shell_path,
+        status: status
+    };
+}
+
+pub type MountPlanEntry = struct {
+    source: String,
+    target: String,
+    fstype: String,
+    options: String
+};
+
+pub fn make_mount_entry(source: String, target: String, fstype: String, options: String) -> MountPlanEntry {
+    return MountPlanEntry {
+        source: source,
+        target: target,
+        fstype: fstype,
+        options: options
+    };
+}
+
+pub type SystemdChrootUnit = struct {
+    unit_name: String,
+    root_dir: String,
+    exec_cmd: String,
+    userspec: String,
+    protect_system: String,
+    protect_home: String,
+    private_tmp: Bool,
+    mount_api_vfs: Bool,
+    no_new_privileges: Bool,
+    drop_caps: String
+};
+
+pub fn make_systemd_unit(
+    unit_name: String,
+    root_dir: String,
+    exec_cmd: String,
+    userspec: String,
+    protect_system: String,
+    protect_home: String,
+    private_tmp: Bool,
+    mount_api_vfs: Bool,
+    no_new_privileges: Bool,
+    drop_caps: String
+) -> SystemdChrootUnit {
+    return SystemdChrootUnit {
+        unit_name: unit_name,
+        root_dir: root_dir,
+        exec_cmd: exec_cmd,
+        userspec: userspec,
+        protect_system: protect_system,
+        protect_home: protect_home,
+        private_tmp: private_tmp,
+        mount_api_vfs: mount_api_vfs,
+        no_new_privileges: no_new_privileges,
+        drop_caps: drop_caps
+    };
+}
+
+pub type AuditFinding = struct {
+    severity: String,
+    check_code: String,
+    description: String,
+    remediation: String
+};
+
+pub fn make_audit_finding(
+    severity: String,
+    check_code: String,
+    description: String,
+    remediation: String
+) -> AuditFinding {
+    return AuditFinding {
+        severity: severity,
+        check_code: check_code,
+        description: description,
+        remediation: remediation
+    };
+}
+
+pub type ChrootSummary = struct {
+    root_path: String,
+    total_checks: Int,
+    passed_checks: Int,
+    warning_checks: Int,
+    critical_checks: Int,
+    readiness_score: Int
+};
+
+pub fn make_chroot_summary(
+    root_path: String,
+    total: Int,
+    passed: Int,
+    warnings: Int,
+    critical: Int,
+    score: Int
+) -> ChrootSummary {
+    return ChrootSummary {
+        root_path: root_path,
+        total_checks: total,
+        passed_checks: passed,
+        warning_checks: warnings,
+        critical_checks: critical,
+        readiness_score: score
+    };
+}

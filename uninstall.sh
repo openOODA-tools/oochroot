@@ -4,7 +4,7 @@
 # "Removes oochroot binary, package installations, and cache."
 #
 # Usage:
-#   curl -fsSL https://openooda-toochroot.github.io/oochroot/uninstall.sh | bash
+#   curl -fsSL https://openooda-tools.github.io/oochroot/uninstall.sh | bash
 #   or: ./uninstall.sh [options]
 #
 # Options:

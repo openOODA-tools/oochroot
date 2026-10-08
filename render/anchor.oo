@@ -1,0 +1,35 @@
+// # oochroot Render Subsystem Verification Anchor
+//
+// Logline: Verification anchor certifying formatting of inspections, mounts, audits, and telemetry.
+//
+// Setup: Validates string rendering functions on synthetic fixtures.
+//
+// Beats:
+//   1. Verify inspection summary rendering.
+//   2. Verify mount plan formatting.
+//   3. Verify audit finding and readiness formatting.
+//   4. Validate JSON telemetry schema.
+
+import "core/chroot_types.oo";
+import "core/chroot_demo.oo";
+import "render/chroot_theme.oo";
+
+pub fn verify_render_subsystem() -> Bool {
+    let insp: JailInspection = build_demo_inspection();
+    let insp_str: String = render_inspection(insp);
+    if chars_len(insp_str) == 0 { return false; }
+
+    let mounts: List[MountPlanEntry] = build_demo_mounts();
+    let mount_str: String = render_mounts(mounts);
+    if chars_len(mount_str) == 0 { return false; }
+
+    let findings: List[AuditFinding] = build_demo_findings();
+    let summary: ChrootSummary = build_demo_summary();
+    let audit_str: String = render_audit(findings, summary);
+    if chars_len(audit_str) == 0 { return false; }
+
+    let json_str: String = render_json(insp, mounts, summary);
+    if chars_len(json_str) == 0 { return false; }
+
+    return true;
+}

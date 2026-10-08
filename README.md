@@ -5,12 +5,12 @@
 ```
 ================================================================================
                                 oochroot
-               Sovereign openOODA ROOT JAIL
+                Sovereign openOODA ROOT JAIL & CONFINEMENT
 ================================================================================
 ```
 
 **Sovereign ROOT JAIL**  
-*Sets up capability-bounded root filesystem jail with pivot_root semantics.*  
+*Sets up capability-bounded root filesystem jail with pivot_root semantics and systemd confinement synthesis.*  
 *Two Faces, One Engine:* Modern terminal ergonomics for humans • Zero-leakage MCP for AI agents  
 Written in 100% pure [openOODA](https://github.com/openOODA).
 
@@ -54,26 +54,63 @@ oochroot-uninstall
 ## 2. CLI Usage
 
 ```
-usage: oochroot [options] [ARGUMENTS]...
+oochroot 0.2.0 (openOODA sovereign container & jail)
+usage: oochroot [OPTION]... NEWROOT [COMMAND [ARG]...]
+  or:  oochroot [OPTION]... --demo
 
-Sets up capability-bounded root filesystem jail with pivot_root semantics.
+Run COMMAND with root directory set to NEWROOT or inspect jail confinement.
 
 Options:
-  -h, --help           display this help and exit
-  -v, --version        output version information and exit
-      --json           output formatted as JSON Lines
-      --color <WHEN>   colorize output: auto, always, never [default: auto]
-      --theme <NAME>   override active oote palette
-      --mcp            run as Model Context Protocol stdio server
+  -u, --userspec=USER:GROUP  specify user and group (ID or name) to use
+      --mount-api-vfs        mount API virtual filesystems (/proc, /sys, /dev)
+      --systemd              synthesize declarative systemd service unit
+      --audit                audit root filesystem for jailbreak vulnerabilities
+      --dry-run              simulate chroot setup and print confinement plan
+      --demo                 run demonstration scenarios with synthetic fixtures
+      --json                 output formatted as JSON telemetry
+  -h, --help                 display this help and exit
+  -V, --version              output version information and exit
+      --mcp                  run as Model Context Protocol stdio server
 ```
 
 ---
 
-## 3. Theming Integration (`oote`)
+## 3. Declarative systemd Confinement Synthesis
 
-`oochroot` synchronizes visual styles and status colors with [oote](https://github.com/openOODA-tools/oote):
-* **Configuration:** Reads active palette from `~/.openooda/theme.oot`.
-* **Environment Overrides:** Respects `$OODA_THEME` and `$NO_COLOR`.
+Following pure systemd-native server architecture, `oochroot` emits declarative service unit definitions utilizing `RootDirectory=`, `MountAPIVFS=yes`, and kernel sandboxing directives:
+
+```bash
+# Synthesize declarative systemd service unit for container jail:
+oochroot --systemd -u sandbox:sandbox --mount-api-vfs /var/lib/jails/app /bin/sh
+```
+
+Output:
+```ini
+# /etc/systemd/system/oochroot-jail.service
+# Generated declaratively by oochroot v0.2.0
+[Unit]
+Description=Sovereign Container Jail (oochroot-jail)
+Documentation=man:oochroot(1) https://openooda-tools.github.io/oochroot
+After=local-fs.target
+
+[Service]
+Type=exec
+RootDirectory=/var/lib/jails/app
+MountAPIVFS=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+PrivateDevices=false
+User=sandbox:sandbox
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+ExecStart=/bin/sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ---
 
@@ -85,11 +122,18 @@ When invoked with `--mcp`, `oochroot` runs a JSON-RPC 2.0 stdio server providing
 oochroot --mcp
 ```
 
+### Registered Tools
+* **`chroot_inspect`**: Inspect candidate root directory layout, essential hierarchy, and shell availability.
+* **`chroot_plan`**: Plan pseudofs mount points and isolation parameters for root jail.
+* **`chroot_systemd`**: Synthesize declarative systemd service unit with `RootDirectory` confinement.
+* **`chroot_audit`**: Audit root directory against jailbreak vectors and device node leaks.
+* **`chroot_verify`**: Validate complete jail configuration and compute readiness score.
+
 ---
 
 ## 5. Security & Zero Ambient Authority
 
-* **Pure Capability Bounded:** Operates strictly with explicit tokens (&ProcCap, &SysInfoCap, &McpCap). Physical absence of ambient disk/net leakage.
+* **Pure Capability Bounded:** Operates strictly with explicit tokens (`&FsReadCap`, `&ProcessCap`, `&EnvCap`). Physical absence of ambient disk/net leakage.
 * **Negative-Trust Architecture:** Strict input validation and operational limits.
 * **Hermetic Binary:** Standalone zero-dependency executable.
 

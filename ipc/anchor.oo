@@ -1,0 +1,39 @@
+// # oochroot IPC Verification Anchor
+//
+// Logline: Verification anchor certifying option parsing, JSON field extraction, and MCP handler.
+//
+// Setup: Validates IPC and protocol handlers against simulated inputs.
+//
+// Beats:
+//   1. Verify option parsing on flag lists.
+//   2. Verify JSON escaping and extraction.
+//   3. Verify MCP initialize and tools list format.
+//   4. Deliver certified IPC subsystem state.
+
+import "ipc/json_field.oo";
+import "ipc/chroot_opts.oo";
+import "ipc/mcp_serve.oo";
+
+pub fn verify_ipc_subsystem() -> Bool {
+    let mut args: List[String] = list_new();
+    args = list_push(args, "--dry-run");
+    args = list_push(args, "--mount-api-vfs");
+    args = list_push(args, "/srv/jail");
+    args = list_push(args, "/bin/sh");
+
+    let opts: ChrootCliOpts = parse_cli_args(args);
+    if !opts.dry_run { return false; }
+    if !opts.mount_api_vfs { return false; }
+    if opts.root_path != "/srv/jail" { return false; }
+
+    let escaped: String = json_escape("hello \"world\"\n");
+    if !str_contains(escaped, "\\\"") { return false; }
+
+    let init_resp: String = render_mcp_init("1");
+    if !str_contains(init_resp, "protocolVersion") { return false; }
+
+    let tools_resp: String = render_mcp_tools_list("2");
+    if !str_contains(tools_resp, "chroot_inspect") { return false; }
+
+    return true;
+}
